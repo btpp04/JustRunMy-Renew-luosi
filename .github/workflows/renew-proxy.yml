@@ -1,0 +1,102 @@
+name: JustRunMy 续期(代理版)
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 每3天北京时间约10:00 (UTC 2:00) - 错开直连版1小时
+    - cron: '0 2 */3 * *'
+    # 每3天北京时间约22:00 (UTC 14:00) - 错开直连版1小时
+    - cron: '0 14 */3 * *'
+
+jobs:
+  renew:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      actions: write
+
+    steps:
+      - name: 📥 下载代码
+        uses: actions/checkout@v4
+
+      - name: 🐍 设置 Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: 🛡️ 启动 sing-box 代理
+        env:
+          PROXY_URL: ${{ secrets.PROXY_URL }}
+        run: |
+          if [ -z "$PROXY_URL" ]; then
+            echo "❌ 未配置 PROXY_URL，代理版需要代理才能运行！"
+            exit 1
+          fi
+
+          # 下载 sing-box
+          SINGBOX_VER="1.13.7"
+          wget -q "https://github.com/SagerNet/sing-box/releases/download/v${SINGBOX_VER}/sing-box-${SINGBOX_VER}-linux-amd64.tar.gz"
+          tar xzf "sing-box-${SINGBOX_VER}-linux-amd64.tar.gz"
+          chmod +x "sing-box-${SINGBOX_VER}-linux-amd64/sing-box"
+          mv "sing-box-${SINGBOX_VER}-linux-amd64/sing-box" sing-box
+
+          # 用 proxy_handler.py 生成 sing-box 配置
+          python3 proxy_handler.py
+
+          # 启动 sing-box
+          nohup ./sing-box run -c config.json > sing-box.log 2>&1 &
+          sleep 5
+
+          echo "🔍 验证代理出口..."
+          RESULT=$(curl -s --connect-timeout 10 --proxy http://127.0.0.1:8080 https://api.ipify.org 2>/dev/null)
+          if [ -n "$RESULT" ]; then
+            echo "✅ 代理出口 IP: $RESULT"
+          else
+            echo "❌ 代理连接失败！"
+            exit 1
+          fi
+
+      - name: 🛠️ 安装系统依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            xvfb \
+            x11-utils \
+            xdotool \
+            scrot \
+            fonts-noto-cjk
+
+      - name: 🐍 安装 Python 依赖
+        run: |
+          pip install seleniumbase aiohttp requests
+          seleniumbase install chromedriver
+
+      - name: 🚀 运行续期脚本(代理)
+        env:
+          JUSTRUNMY_EMAIL: ${{ secrets.JUSTRUNMY_EMAIL }}
+          JUSTRUNMY_PASSWORD: ${{ secrets.JUSTRUNMY_PASSWORD }}
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          PROXY_URL: ${{ secrets.PROXY_URL }}
+        run: |
+          echo "🔗 代理模式，出口 IP: $(curl -s --proxy http://127.0.0.1:8080 https://api.ipify.org)"
+          xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \
+            python justrunmy_renew.py
+
+      - name: 📸 上传调试截图
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-screenshots
+          path: "*.png"
+          retention-days: 3
+
+      - name: 🧹 清理旧的工作流运行记录
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          delete_workflow_pattern: ${{ github.workflow }}
+          retain_days: 0
+          keep_minimum_runs: 3
