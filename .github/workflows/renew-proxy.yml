@@ -78,7 +78,7 @@ jobs:
           JUSTRUNMY_PASSWORD: ${{ secrets.JUSTRUNMY_PASSWORD }}
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-          PROXY_URL: ${{ secrets.PROXY_URL }}
+          USE_PROXY: "true"
         run: |
           echo "🔗 代理模式，出口 IP: $(curl -s --proxy http://127.0.0.1:8080 https://api.ipify.org)"
           xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \
